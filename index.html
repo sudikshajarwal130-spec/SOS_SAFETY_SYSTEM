@@ -1,0 +1,430 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta name="theme-color" content="#090909">
+
+    <meta name="description"
+        content="SOS Safety System - Personal Emergency Alert Dashboard">
+
+    <title>SOS | Emergency Command Center</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+
+    <!-- MAIN HEADER -->
+
+    <header class="main-header">
+
+        <div class="brand">
+            <span class="brand-icon">◈</span>
+
+            <div>
+                <h1>SOS<span> SYSTEM</span></h1>
+                <p>PERSONAL EMERGENCY COMMAND CENTER</p>
+            </div>
+        </div>
+
+        <div class="header-status">
+            <span class="status-dot"></span>
+            <span id="systemStatus">SYSTEM STANDBY</span>
+        </div>
+
+    </header>
+
+
+    <!-- MAIN DASHBOARD -->
+
+    <main class="dashboard">
+
+        <!-- LEFT COLUMN -->
+
+        <section class="main-column">
+
+            <!-- SOS PANEL -->
+
+            <section class="panel sos-panel">
+
+                <div class="panel-heading">
+                    <span class="section-code">01 / EMERGENCY CONTROL</span>
+                    <span class="live-indicator">● SYSTEM READY</span>
+                </div>
+
+                <div class="sos-content">
+
+                    <p class="warning-text">
+                        IN CASE OF EMERGENCY
+                    </p>
+
+                    <button id="sosButton" class="sos-button"
+                        type="button">
+                        <span>SOS</span>
+                        <small>ACTIVATE EMERGENCY</small>
+                    </button>
+
+                    <p id="alertStatus" class="alert-status">
+                        SYSTEM IS READY
+                    </p>
+
+                    <div class="control-buttons">
+
+                        <button id="silenceButton"
+                            class="secondary-button"
+                            type="button">
+                            SILENCE ALARM
+                        </button>
+
+                        <button id="resetButton"
+                            class="secondary-button"
+                            type="button">
+                            RESET SYSTEM
+                        </button>
+
+                    </div>
+
+                    <p class="sound-status">
+                        ALARM STATUS:
+                        <span id="soundStatus">OFF</span>
+                    </p>
+
+                </div>
+
+            </section>
+
+
+            <!-- PERMISSIONS PANEL -->
+
+            <section class="panel">
+
+                <div class="panel-heading">
+                    <span class="section-code">02 / SYSTEM PERMISSIONS</span>
+                </div>
+
+                <p class="panel-description">
+                    Verify required access before activating the system.
+                </p>
+
+                <div class="permission-list">
+
+                    <div class="permission-item">
+                        <span>PHONE GPS LOCATION</span>
+                        <strong id="locationPermissionStatus">
+                            NOT CHECKED
+                        </strong>
+                    </div>
+
+                    <div class="permission-item">
+                        <span>INTERNET CONNECTION</span>
+                        <strong id="internetPermissionStatus">
+                            NOT CHECKED
+                        </strong>
+                    </div>
+
+                    <div class="permission-item">
+                        <span>WHATSAPP LOGIN</span>
+                        <strong id="whatsappPermissionStatus">
+                            NOT VERIFIED
+                        </strong>
+                    </div>
+
+                </div>
+
+                <button id="permissionButton"
+                    class="action-button"
+                    type="button">
+                    VERIFY PERMISSIONS
+                </button>
+
+                <p id="permissionResult" class="result-text">
+                    PERMISSION CHECK PENDING
+                </p>
+
+            </section>
+
+
+            <!-- LOCATION PANEL -->
+
+            <section class="panel location-panel">
+
+                <div class="panel-heading">
+                    <span class="section-code">03 / LIVE LOCATION TRACKING</span>
+
+                    <span id="trackingStatus">
+                        ● OFFLINE
+                    </span>
+                </div>
+
+                <div class="location-information">
+
+                    <div class="location-box">
+
+                        <span class="small-label">
+                            PHONE GPS STATUS
+                        </span>
+
+                        <p id="location">
+                            LOCATION NOT RECEIVED
+                        </p>
+
+                    </div>
+
+                    <div class="location-box">
+
+                        <span class="small-label">
+                            LAST LOCATION UPDATE
+                        </span>
+
+                        <p id="lastLocationUpdate">
+                            --
+                        </p>
+
+                    </div>
+
+                </div>
+
+                <div id="map" class="map-container">
+
+                    <div class="map-placeholder">
+                        <span>◈</span>
+                        <p>LOCATION MAP</p>
+                        <small>Waiting for GPS coordinates...</small>
+                    </div>
+
+                </div>
+
+                <div class="location-actions">
+
+                    <button id="locationButton"
+                        class="action-button"
+                        type="button">
+                        START LOCATION TRACKING
+                    </button>
+
+                    <a id="mapLink"
+                        class="map-link"
+                        href="#"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        hidden>
+                        OPEN CURRENT LOCATION IN MAP
+                    </a>
+
+                </div>
+
+                <div class="tracking-details">
+
+                    <p>
+                        TRACKING:
+                        <strong id="trackingInfo">OFF</strong>
+                    </p>
+
+                    <p>
+                        SERVER:
+                        <strong id="serverStatus">
+                            NOT CONNECTED
+                        </strong>
+                    </p>
+
+                    <p>
+                        LIVE SHARE:
+                        <strong id="shareLinkStatus">
+                            NOT CREATED
+                        </strong>
+                    </p>
+
+                </div>
+
+            </section>
+
+        </section>
+
+
+        <!-- RIGHT COLUMN -->
+
+        <section class="side-column">
+
+            <!-- CONTACTS PANEL -->
+
+            <section class="panel">
+
+                <div class="panel-heading">
+                    <span class="section-code">04 / EMERGENCY CONTACTS</span>
+                </div>
+
+                <p class="panel-description">
+                    Add two trusted emergency contacts.
+                </p>
+
+                <div class="contact-card">
+
+                    <h3>CONTACT 01</h3>
+
+                    <label for="contact1">CONTACT NAME</label>
+
+                    <input
+                        type="text"
+                        id="contact1"
+                        placeholder="Enter contact name"
+                        autocomplete="name">
+
+                    <label for="phone1">WHATSAPP NUMBER</label>
+
+                    <input
+                        type="tel"
+                        id="phone1"
+                        placeholder="Country code + number"
+                        autocomplete="tel">
+
+                    <p id="contact1Status">NOT SAVED</p>
+
+                </div>
+
+
+                <div class="contact-card">
+
+                    <h3>CONTACT 02</h3>
+
+                    <label for="contact2">CONTACT NAME</label>
+
+                    <input
+                        type="text"
+                        id="contact2"
+                        placeholder="Enter contact name">
+
+                    <label for="phone2">WHATSAPP NUMBER</label>
+
+                    <input
+                        type="tel"
+                        id="phone2"
+                        placeholder="Country code + number">
+
+                    <p id="contact2Status">NOT SAVED</p>
+
+                </div>
+
+                <button id="saveContacts"
+                    class="action-button"
+                    type="button">
+                    SAVE EMERGENCY CONTACTS
+                </button>
+
+                <p id="contactMessage" class="result-text">
+                    CONTACT DETAILS NOT SAVED
+                </p>
+
+            </section>
+
+
+            <!-- ALERT PANEL -->
+
+            <section class="panel">
+
+                <div class="panel-heading">
+                    <span class="section-code">05 / EMERGENCY ALERT</span>
+                </div>
+
+                <div class="message-box">
+
+                    <h3>MESSAGE PREVIEW</h3>
+
+                    <div id="messagePreview">
+                        SOS ALERT! I NEED EMERGENCY ASSISTANCE.
+                        My location is currently unavailable.
+                    </div>
+
+                </div>
+
+
+                <div class="delivery-card">
+
+                    <h3>CONTACT 01</h3>
+
+                    <p id="deliveryStatus1">
+                        WAITING
+                    </p>
+
+                    <button id="sendContact1"
+                        class="action-button"
+                        type="button">
+                        OPEN CONTACT 01 WHATSAPP
+                    </button>
+
+                </div>
+
+
+                <div class="delivery-card">
+
+                    <h3>CONTACT 02</h3>
+
+                    <p id="deliveryStatus2">
+                        WAITING
+                    </p>
+
+                    <button id="sendContact2"
+                        class="action-button"
+                        type="button">
+                        OPEN CONTACT 02 WHATSAPP
+                    </button>
+
+                </div>
+
+                <p class="small-note">
+                    WhatsApp will open with a prepared message.
+                    You must manually press Send.
+                </p>
+
+            </section>
+
+
+            <!-- ACTIVITY LOG -->
+
+            <section class="panel">
+
+                <div class="panel-heading">
+                    <span class="section-code">06 / SYSTEM ACTIVITY LOG</span>
+                </div>
+
+                <div id="activityLog" class="activity-log">
+
+                    <p>
+                        <span class="log-time">SYSTEM</span>
+                        COMMAND CENTER INITIALIZED.
+                    </p>
+
+                </div>
+
+            </section>
+
+        </section>
+
+    </main>
+
+
+    <!-- FOOTER -->
+
+    <footer class="main-footer">
+
+        <p>
+            SOS SAFETY SYSTEM
+            <span> | </span>
+            EMERGENCY RESPONSE PROTOTYPE
+        </p>
+
+        <small>
+            Prototype only. Do not rely on this system as your
+            sole emergency safety method.
+        </small>
+
+    </footer>
+
+</body>
+
+</html>
