@@ -1,768 +1,448 @@
 
-/* =========================================
-   SOS SAFETY SYSTEM
-   EMERGENCY COMMAND CENTER
-========================================= */
+// ============================================
+// SOS SAFETY SYSTEM - FIREBASE INTEGRATION
+// ============================================
 
-// ---------- ELEMENTS ----------
+const firebaseConfig = {
+    apiKey: "AIzaSyB4C6UHLBfNkE6s-GlWDRi8t27iNS4m1yw",
+    authDomain: "sos-guard.firebaseapp.com",
+    databaseURL: "https://sos-guard-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "sos-guard",
+    storageBucket: "sos-guard.firebasestorage.app",
+    messagingSenderId: "262503933457",
+    appId: "1:262503933457:web:c3c52cc1d533e614d473b0",
+    measurementId: "G-46ZTN6N0JQ"
+};
 
-const $ = (id) => document.getElementById(id);
+// INITIALIZATION
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const database = firebase.database();
+
+let currentUser = null;
+let currentLocation = null;
+let watchId = null;
+let sosActive = false;
+let audioContext = null;
+let alarmInterval = null;
+let contacts = JSON.parse(localStorage.getItem("sosContacts") || "{}");
+
+// DOM ELEMENTS
+const $ = id => document.getElementById(id);
 
 const sosButton = $("sosButton");
 const silenceButton = $("silenceButton");
 const resetButton = $("resetButton");
 
-const systemStatus = $("systemStatus");
-const alertStatus = $("alertStatus");
-const soundStatus = $("soundStatus");
-
-const permissionButton = $("permissionButton");
-const permissionResult = $("permissionResult");
-
-const locationPermissionStatus = $("locationPermissionStatus");
-const internetPermissionStatus = $("internetPermissionStatus");
-const whatsappPermissionStatus = $("whatsappPermissionStatus");
-
-const locationText = $("location");
-const locationButton = $("locationButton");
-const lastLocationUpdate = $("lastLocationUpdate");
-const trackingStatus = $("trackingStatus");
-const trackingInfo = $("trackingInfo");
-const mapLink = $("mapLink");
-const serverStatus = $("serverStatus");
-const shareLinkStatus = $("shareLinkStatus");
-
-const contact1 = $("contact1");
-const phone1 = $("phone1");
-const contact2 = $("contact2");
-const phone2 = $("phone2");
-
-const saveContacts = $("saveContacts");
-const contactMessage = $("contactMessage");
-const contact1Status = $("contact1Status");
-const contact2Status = $("contact2Status");
-
-const messagePreview = $("messagePreview");
-
-const sendContact1 = $("sendContact1");
-const sendContact2 = $("sendContact2");
-
-const deliveryStatus1 = $("deliveryStatus1");
-const deliveryStatus2 = $("deliveryStatus2");
-
-const activityLog = $("activityLog");
-
-
-// ---------- SYSTEM VARIABLES ----------
-
-let sosActive = false;
-let watchId = null;
-let currentLocation = null;
-
-let audioContext = null;
-let alarmInterval = null;
-
-let contacts = {
-    name1: "",
-    phone1: "",
-    name2: "",
-    phone2: ""
-};
-
-
-// ---------- ACTIVITY LOG ----------
-
-function addLog(message) {
-
-    const time = new Date().toLocaleTimeString();
-
-    const entry = document.createElement("p");
-
-    const timeLabel = document.createElement("span");
-
-    timeLabel.className = "log-time";
-    timeLabel.textContent = time;
-
-    entry.appendChild(timeLabel);
-    entry.appendChild(document.createTextNode(message));
-
-    activityLog.prepend(entry);
+function setText(id, value) {
+    const el = $(id);
+    if (el) el.textContent = value;
 }
 
+function logActivity(message) {
+    const log = $("activityLog");
+    if (!log) return;
 
-// ---------- CONTACTS ----------
+    const item = document.createElement("p");
+    const time = document.createElement("span");
+    time.className = "log-time";
+    time.textContent = new Date().toLocaleTimeString();
 
-function loadContacts() {
+    item.appendChild(time);
+    item.appendChild(document.createTextNode(message));
+    log.prepend(item);
+}
+
+function updateStatus(id, value) {
+    setText(id, value);
+}
+
+// FIREBASE AUTHENTICATION
+async function initializeFirebase() {
+    setText("serverStatus", "CONNECTING...");
 
     try {
+        const result = await auth.signInAnonymously();
+        currentUser = result.user;
 
-        const saved = localStorage.getItem("sosContacts");
-
-        if (!saved) return;
-
-        contacts = JSON.parse(saved);
-
-        contact1.value = contacts.name1 || "";
-        phone1.value = contacts.phone1 || "";
-
-        contact2.value = contacts.name2 || "";
-        phone2.value = contacts.phone2 || "";
-
-        updateContactStatus();
+        setText("serverStatus", "CONNECTED");
+        logActivity("Firebase authentication successful.");
+        return true;
 
     } catch (error) {
-
-        addLog("Unable to load saved contacts.");
-
+        console.error("Firebase error:", error);
+        setText("serverStatus", "CONNECTION FAILED");
+        logActivity("Firebase connection failed: " + error.message);
+        return false;
     }
 }
 
+// SAVE LOCATION TO FIREBASE
+async function saveLocationToFirebase(position) {
+    if (!currentUser) return;
 
-function updateContactStatus() {
-
-    contact1Status.textContent =
-        contacts.phone1 ? "SAVED" : "NOT SAVED";
-
-    contact2Status.textContent =
-        contacts.phone2 ? "SAVED" : "NOT SAVED";
-}
-
-
-function saveContactDetails() {
-
-    const number1 = phone1.value.replace(/\D/g, "");
-    const number2 = phone2.value.replace(/\D/g, "");
-
-    if (!number1 && !number2) {
-
-        contactMessage.textContent =
-            "ENTER AT LEAST ONE CONTACT NUMBER";
-
-        return;
-    }
-
-    if (
-        (number1 && (number1.length < 10 || number1.length > 15)) ||
-        (number2 && (number2.length < 10 || number2.length > 15))
-    ) {
-
-        contactMessage.textContent =
-            "CHECK YOUR CONTACT NUMBERS";
-
-        return;
-    }
-
-    contacts = {
-
-        name1: contact1.value.trim(),
-        phone1: number1,
-
-        name2: contact2.value.trim(),
-        phone2: number2
-
+    const data = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        timestamp: Date.now(),
+        sosActive: sosActive
     };
 
-    localStorage.setItem(
-        "sosContacts",
-        JSON.stringify(contacts)
-    );
-
-    updateContactStatus();
-
-    contactMessage.textContent =
-        "CONTACTS SAVED SUCCESSFULLY";
-
-    addLog("Emergency contacts saved.");
+    try {
+        await database.ref("users/" + currentUser.uid + "/location").set(data);
+        setText("serverStatus", "LOCATION SYNCED");
+    } catch (error) {
+        console.error("Location upload failed:", error);
+        setText("serverStatus", "SYNC FAILED");
+        logActivity("Location sync failed.");
+    }
 }
 
-
-// ---------- PERMISSION CHECK ----------
-
-async function verifyPermissions() {
-
-    permissionResult.textContent =
-        "CHECKING PERMISSIONS...";
-
-    internetPermissionStatus.textContent =
-        navigator.onLine ? "AVAILABLE" : "OFFLINE";
-
-    // A normal website cannot verify WhatsApp login.
-    whatsappPermissionStatus.textContent =
-        "LOGIN NOT VERIFIED";
-
-    if (!navigator.geolocation) {
-
-        locationPermissionStatus.textContent =
-            "NOT SUPPORTED";
-
-        permissionResult.textContent =
-            "GPS NOT SUPPORTED BY THIS BROWSER";
-
-        return;
-    }
-
-    if (navigator.permissions?.query) {
-
-        try {
-
-            const permission = await navigator.permissions.query({
-                name: "geolocation"
-            });
-
-            const states = {
-                granted: "GRANTED",
-                denied: "DENIED",
-                prompt: "NEEDS APPROVAL"
-            };
-
-            locationPermissionStatus.textContent =
-                states[permission.state] || "UNKNOWN";
-
-        } catch (error) {
-
-            locationPermissionStatus.textContent =
-                "CHECK WHEN GPS STARTS";
-
-        }
-
-    } else {
-
-        locationPermissionStatus.textContent =
-            "CHECK WHEN GPS STARTS";
-
-    }
-
-    permissionResult.textContent =
-        navigator.onLine
-        ? "PERMISSION STATUS CHECKED"
-        : "INTERNET CONNECTION REQUIRED";
-
-    addLog("Permission status checked.");
-}
-
-
-// ---------- GPS TRACKING ----------
-
+// GPS TRACKING
 function startLocationTracking() {
-
     if (!navigator.geolocation) {
-
-        locationText.textContent =
-            "GPS NOT SUPPORTED";
-
-        addLog("GPS not supported by browser.");
-
+        setText("trackingStatus", "GPS NOT SUPPORTED");
         return;
     }
 
     if (!window.isSecureContext) {
-
-        locationText.textContent =
-            "HTTPS REQUIRED FOR PHONE GPS";
-
-        addLog("Secure HTTPS connection required.");
-
+        setText("trackingStatus", "HTTPS REQUIRED");
+        logActivity("GPS requires HTTPS or localhost.");
         return;
     }
 
-    if (watchId !== null) {
+    if (watchId !== null) return;
 
-        addLog("GPS tracking is already active.");
-
-        return;
-    }
-
-    locationText.textContent =
-        "WAITING FOR PHONE GPS...";
-
-    trackingStatus.textContent =
-        "● CONNECTING";
-
-    navigator.geolocation.watchPosition(
-
-        function(position) {
-
+    setText("trackingStatus", "REQUESTING GPS...");
+    setText("location", "Waiting for GPS...");
+    
+    watchId = navigator.geolocation.watchPosition(
+        async position => {
             currentLocation = {
-
                 latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                accuracy: position.coords.accuracy,
-                timestamp: position.timestamp
-
+                longitude: position.coords.longitude
             };
 
-            const latitude =
-                currentLocation.latitude.toFixed(6);
+            const lat = currentLocation.latitude;
+            const lng = currentLocation.longitude;
 
-            const longitude =
-                currentLocation.longitude.toFixed(6);
+            setText("location", lat.toFixed(6) + ", " + lng.toFixed(6));
+            setText("trackingStatus", "GPS ACTIVE");
+            setText("lastLocationUpdate", new Date().toLocaleTimeString());
 
-            const googleMapsURL =
-                `https://www.google.com/maps?q=${latitude},${longitude}`;
+            const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+            const mapLink = $("mapLink");
 
-            locationText.textContent =
-                `GPS ACTIVE | Accuracy ±${Math.round(currentLocation.accuracy)} m`;
+            if (mapLink) {
+                mapLink.href = mapUrl;
+                mapLink.textContent = "OPEN CURRENT LOCATION IN MAPS";
+                mapLink.target = "_blank";
+            }
 
-            lastLocationUpdate.textContent =
-                new Date(currentLocation.timestamp).toLocaleTimeString();
+            const map = $("map");
+            if (map) {
+                map.innerHTML = `
+                    <div class="map-placeholder">
+                        <span>📍</span>
+                        <p>GPS LOCATION ACTIVE</p>
+                        <small>${lat.toFixed(5)}, ${lng.toFixed(5)}</small>
+                        <small>Open Google Maps using the link below</small>
+                    </div>`;
+            }
 
-            mapLink.href = googleMapsURL;
-            mapLink.hidden = false;
-
-            trackingStatus.textContent =
-                "● GPS ACTIVE";
-
-            trackingInfo.textContent =
-                "ACTIVE";
-
-            locationPermissionStatus.textContent =
-                "GRANTED";
-
-            updateMessagePreview();
-
-            addLog("Phone GPS location updated.");
-
+            await saveLocationToFirebase(position);
         },
 
-        function(error) {
-
-            const errors = {
-
-                1: "LOCATION PERMISSION DENIED",
-                2: "GPS POSITION UNAVAILABLE",
-                3: "GPS REQUEST TIMED OUT"
-
-            };
-
-            locationText.textContent =
-                errors[error.code] || "GPS ERROR";
-
-            trackingStatus.textContent =
-                "● GPS ERROR";
-
-            trackingInfo.textContent =
-                "ERROR";
-
-            watchId = null;
-
-            addLog("GPS error: " + error.message);
-
+        error => {
+            console.error("GPS error:", error);
+            setText("trackingStatus", "GPS ERROR");
+            setText("location", "Location unavailable");
+            logActivity("GPS error: " + error.message);
         },
 
         {
-
             enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 20000
-
+            maximumAge: 3000,
+            timeout: 15000
         }
-
     );
 
-    addLog("Continuous GPS tracking started.");
+    logActivity("GPS tracking started.");
 }
-
 
 function stopLocationTracking() {
-
     if (watchId !== null) {
-
         navigator.geolocation.clearWatch(watchId);
-
         watchId = null;
-
     }
 
-    trackingStatus.textContent =
-        "● OFFLINE";
-
-    trackingInfo.textContent =
-        "OFF";
-
-    addLog("GPS tracking stopped.");
+    setText("trackingStatus", "TRACKING STOPPED");
 }
 
+// BROWSER ALARM
+function startAlarm() {
+    stopAlarm();
 
-// ---------- EMERGENCY MESSAGE ----------
+    try {
+        const AudioContextClass =
+            window.AudioContext || window.webkitAudioContext;
+
+        if (!AudioContextClass) {
+            setText("soundStatus", "AUDIO NOT SUPPORTED");
+            return;
+        }
+
+        audioContext = new AudioContextClass();
+
+        function beep() {
+            if (!audioContext || audioContext.state === "closed") return;
+
+            const oscillator = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+
+            oscillator.type = "sawtooth";
+            oscillator.frequency.value = 850;
+
+            gain.gain.value = 0.12;
+
+            oscillator.connect(gain);
+            gain.connect(audioContext.destination);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.3);
+        }
+
+        beep();
+        alarmInterval = setInterval(beep, 700);
+
+        setText("soundStatus", "ALARM ACTIVE");
+    } catch (error) {
+        console.error(error);
+        setText("soundStatus", "ALARM UNAVAILABLE");
+    }
+}
+
+function stopAlarm() {
+    if (alarmInterval) {
+        clearInterval(alarmInterval);
+        alarmInterval = null;
+    }
+
+    if (audioContext && audioContext.state !== "closed") {
+        audioContext.close();
+    }
+
+    audioContext = null;
+    setText("soundStatus", "ALARM OFF");
+}
+
+// CONTACT MANAGEMENT
+function loadContacts() {
+    if ($("contact1")) $("contact1").value = contacts.name1 || "";
+    if ($("phone1")) $("phone1").value = contacts.phone1 || "";
+    if ($("contact2")) $("contact2").value = contacts.name2 || "";
+    if ($("phone2")) $("phone2").value = contacts.phone2 || "";
+}
+
+function saveContactDetails() {
+    contacts = {
+        name1: $("contact1")?.value.trim() || "",
+        phone1: $("phone1")?.value.trim() || "",
+        name2: $("contact2")?.value.trim() || "",
+        phone2: $("phone2")?.value.trim() || ""
+    };
+
+    localStorage.setItem("sosContacts", JSON.stringify(contacts));
+
+    setText("contactMessage", "CONTACTS SAVED");
+    logActivity("Emergency contacts saved locally.");
+    updateMessagePreview();
+}
 
 function createEmergencyMessage() {
-
-    let message =
-        "🚨 SOS EMERGENCY ALERT!\n\n";
-
-    message +=
-        "I NEED EMERGENCY ASSISTANCE. PLEASE CONTACT ME IMMEDIATELY.\n\n";
+    let message = "EMERGENCY SOS! I need help.";
 
     if (currentLocation) {
+        const mapUrl =
+            `https://www.google.com/maps?q=${currentLocation.latitude},${currentLocation.longitude}`;
 
-        const latitude =
-            currentLocation.latitude.toFixed(6);
-
-        const longitude =
-            currentLocation.longitude.toFixed(6);
-
-        const mapURL =
-            `https://www.google.com/maps?q=${latitude},${longitude}`;
-
-        message +=
-            "MY LATEST LOCATION:\n" + mapURL;
-
+        message += "\nMy current location: " + mapUrl;
     } else {
-
-        message +=
-            "My location is currently unavailable.";
-
+        message += "\nMy GPS location is currently unavailable.";
     }
 
     return message;
 }
 
-
 function updateMessagePreview() {
-
-    messagePreview.textContent =
-        createEmergencyMessage();
-
+    setText("messagePreview", createEmergencyMessage());
 }
 
-
-// ---------- WHATSAPP ----------
-
-function sendWhatsAppAlert(number, name, statusElement) {
-
-    if (!number) {
-
-        statusElement.textContent =
-            "CONTACT NUMBER NOT SAVED";
-
+function sendWhatsAppAlert(phone, statusId) {
+    if (!phone) {
+        setText(statusId, "PHONE NUMBER MISSING");
         return;
     }
 
-    if (!currentLocation) {
+    const cleanPhone = phone.replace(/\D/g, "");
 
-        statusElement.textContent =
-            "WAITING FOR GPS LOCATION";
-
-        startLocationTracking();
-
+    if (cleanPhone.length < 10) {
+        setText(statusId, "INVALID PHONE NUMBER");
         return;
     }
 
-    // WhatsApp requires country code.
-    // Example: India = 91 followed by mobile number.
+    const message = encodeURIComponent(createEmergencyMessage());
+    const url = `https://wa.me/${cleanPhone}?text=${message}`;
 
-    if (number.length === 10) {
+    window.open(url, "_blank");
 
-        statusElement.textContent =
-            "ADD COUNTRY CODE (91)";
-
-        return;
-    }
-
-    const message = createEmergencyMessage();
-
-    const whatsappURL =
-        "https://wa.me/" +
-        number +
-        "?text=" +
-        encodeURIComponent(message);
-
-    statusElement.textContent =
-        "OPENING WHATSAPP...";
-
-    addLog("Opening WhatsApp for " + (name || "emergency contact"));
-
-    window.open(whatsappURL, "_blank");
-
-    statusElement.textContent =
-        "AWAITING MANUAL SEND";
-
+    setText(statusId, "WHATSAPP OPENED - PRESS SEND");
+    logActivity("WhatsApp alert prepared. Manual Send required.");
 }
 
-
-// ---------- ALARM ----------
-
-async function startAlarm() {
-
-    stopAlarm();
-
-    const AudioContextClass =
-        window.AudioContext || window.webkitAudioContext;
-
-    if (!AudioContextClass) {
-
-        soundStatus.textContent =
-            "NOT SUPPORTED";
-
-        return;
-    }
-
-    try {
-
-        audioContext = new AudioContextClass();
-
-        await audioContext.resume();
-
-        soundStatus.textContent = "ON";
-
-        function beep() {
-
-            if (!audioContext || !sosActive) return;
-
-            const oscillator =
-                audioContext.createOscillator();
-
-            const gain =
-                audioContext.createGain();
-
-            oscillator.type = "sawtooth";
-
-            oscillator.frequency.value = 850;
-
-            oscillator.connect(gain);
-
-            gain.connect(audioContext.destination);
-
-            gain.gain.setValueAtTime(
-                0.18,
-                audioContext.currentTime
-            );
-
-            oscillator.start();
-
-            oscillator.stop(
-                audioContext.currentTime + 0.2
-            );
-
-        }
-
-        beep();
-
-        alarmInterval = setInterval(beep, 650);
-
-        addLog("Browser alarm activated.");
-
-    } catch (error) {
-
-        soundStatus.textContent =
-            "AUDIO ERROR";
-
-        addLog("Alarm could not start.");
-
-    }
-
-}
-
-
-function stopAlarm() {
-
-    if (alarmInterval !== null) {
-
-        clearInterval(alarmInterval);
-
-        alarmInterval = null;
-
-    }
-
-    if (audioContext) {
-
-        audioContext.close();
-
-        audioContext = null;
-
-    }
-
-    soundStatus.textContent = "OFF";
-
-}
-
-
-// ---------- SOS ACTIVATION ----------
-
-function activateSOS() {
-
+// SOS ACTIVATION
+async function activateSOS() {
     if (sosActive) return;
 
     sosActive = true;
 
-    alertStatus.textContent =
-        "EMERGENCY MODE ACTIVATED";
+    setText("systemStatus", "EMERGENCY ACTIVE");
+    setText("alertStatus", "SOS ACTIVATED");
+    setText("shareLinkStatus", "LOCATION SYNC PENDING");
 
-    alertStatus.style.color =
-        "#ff173d";
-
-    systemStatus.textContent =
-        "EMERGENCY ACTIVE";
-
-    addLog("SOS ACTIVATED.");
+    logActivity("EMERGENCY SOS ACTIVATED.");
 
     startAlarm();
-
     startLocationTracking();
 
+    if (currentUser && currentLocation) {
+        const position = {
+            coords: {
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+                accuracy: 0
+            }
+        };
+
+        await saveLocationToFirebase(position);
+    }
+
     updateMessagePreview();
-
 }
 
-
-// ---------- SILENCE ----------
-
-function silenceAlarm() {
-
-    stopAlarm();
-
-    alertStatus.textContent =
-        sosActive
-        ? "ALARM SILENCED - SOS STILL ACTIVE"
-        : "SYSTEM IS READY";
-
-    addLog("Alarm silenced.");
-
-}
-
-
-// ---------- RESET ----------
-
-function resetSystem() {
-
+// RESET
+async function resetSystem() {
     sosActive = false;
 
     stopAlarm();
-
     stopLocationTracking();
 
+    setText("systemStatus", "SYSTEM STANDBY");
+    setText("alertStatus", "NO ACTIVE ALERT");
+    setText("shareLinkStatus", "NOT SHARED");
+    setText("location", "Tracking stopped");
+    setText("trackingStatus", "STANDBY");
+
+    if (currentUser) {
+        try {
+            await database.ref(
+                "users/" + currentUser.uid + "/location/sosActive"
+            ).set(false);
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
     currentLocation = null;
-
-    alertStatus.textContent =
-        "SYSTEM IS READY";
-
-    alertStatus.style.color =
-        "#35e69a";
-
-    systemStatus.textContent =
-        "SYSTEM STANDBY";
-
-    locationText.textContent =
-        "LOCATION NOT RECEIVED";
-
-    lastLocationUpdate.textContent =
-        "--";
-
-    mapLink.hidden = true;
-
-    deliveryStatus1.textContent =
-        "WAITING";
-
-    deliveryStatus2.textContent =
-        "WAITING";
-
-    serverStatus.textContent =
-        "NOT CONNECTED";
-
-    shareLinkStatus.textContent =
-        "NOT CREATED";
-
     updateMessagePreview();
 
-    addLog("System reset.");
-
+    logActivity("System reset.");
 }
 
+// PERMISSION CHECK
+async function verifyPermissions() {
+    setText("permissionResult", "CHECKING PERMISSIONS...");
 
-// ---------- BUTTON EVENTS ----------
+    setText(
+        "locationPermissionStatus",
+        navigator.geolocation ? "SUPPORTED - REQUEST ON GPS START" : "NOT SUPPORTED"
+    );
 
-sosButton.addEventListener(
-    "click",
-    activateSOS
-);
+    setText(
+        "internetPermissionStatus",
+        navigator.onLine ? "ONLINE" : "OFFLINE"
+    );
 
-silenceButton.addEventListener(
-    "click",
-    silenceAlarm
-);
+    setText(
+        "whatsappPermissionStatus",
+        "MANUAL SEND REQUIRED"
+    );
 
-resetButton.addEventListener(
-    "click",
-    resetSystem
-);
+    setText(
+        "permissionResult",
+        "Permission status checked. GPS permission is requested when tracking starts."
+    );
+}
 
-permissionButton.addEventListener(
-    "click",
-    verifyPermissions
-);
+// EVENT LISTENERS
+if (sosButton) {
+    sosButton.addEventListener("click", activateSOS);
+}
 
-locationButton.addEventListener(
-    "click",
-    startLocationTracking
-);
+if (silenceButton) {
+    silenceButton.addEventListener("click", stopAlarm);
+}
 
-saveContacts.addEventListener(
-    "click",
-    saveContactDetails
-);
+if (resetButton) {
+    resetButton.addEventListener("click", resetSystem);
+}
 
-sendContact1.addEventListener(
-    "click",
-    function() {
+if ($("permissionButton")) {
+    $("permissionButton").addEventListener("click", verifyPermissions);
+}
 
-        sendWhatsAppAlert(
-            contacts.phone1,
-            contacts.name1,
-            deliveryStatus1
-        );
+if ($("locationButton")) {
+    $("locationButton").addEventListener("click", startLocationTracking);
+}
 
-    }
-);
+if ($("saveContacts")) {
+    $("saveContacts").addEventListener("click", saveContactDetails);
+}
 
-sendContact2.addEventListener(
-    "click",
-    function() {
+if ($("sendContact1")) {
+    $("sendContact1").addEventListener("click", () => {
+        sendWhatsAppAlert(contacts.phone1, "deliveryStatus1");
+    });
+}
 
-        sendWhatsAppAlert(
-            contacts.phone2,
-            contacts.name2,
-            deliveryStatus2
-        );
+if ($("sendContact2")) {
+    $("sendContact2").addEventListener("click", () => {
+        sendWhatsAppAlert(contacts.phone2, "deliveryStatus2");
+    });
+}
 
-    }
-);
-
-
-// ---------- INTERNET STATUS ----------
-
-window.addEventListener("online", function() {
-
-    internetPermissionStatus.textContent =
-        "AVAILABLE";
-
-    addLog("Internet connection restored.");
-
+window.addEventListener("online", () => {
+    setText("internetPermissionStatus", "ONLINE");
 });
 
-
-window.addEventListener("offline", function() {
-
-    internetPermissionStatus.textContent =
-        "OFFLINE";
-
-    addLog("Internet connection lost.");
-
+window.addEventListener("offline", () => {
+    setText("internetPermissionStatus", "OFFLINE");
 });
 
-
-// ---------- INITIALIZATION ----------
-
+// STARTUP
 loadContacts();
-
 updateMessagePreview();
 
-serverStatus.textContent =
-    "FIREBASE NOT CONFIGURED";
+setText("systemStatus", "INITIALIZING...");
+setText("serverStatus", "CONNECTING...");
+setText("trackingStatus", "STANDBY");
+setText("alertStatus", "NO ACTIVE ALERT");
+setText("soundStatus", "ALARM OFF");
+setText("shareLinkStatus", "NOT CREATED");
 
-shareLinkStatus.textContent =
-    "NOT CREATED";
+initializeFirebase();
+verifyPermissions();
 
-addLog("SOS COMMAND CENTER INITIALIZED.");
-
-console.log("SOS SAFETY SYSTEM READY.");
-
+logActivity("SOS Safety System initialized.");
