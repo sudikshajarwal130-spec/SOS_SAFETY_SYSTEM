@@ -1,7 +1,12 @@
 
-// ============================================
-// SOS SAFETY SYSTEM - FIREBASE INTEGRATION
-// ============================================
+/* =========================================
+   SOS GUARD - COMPLETE UPDATED JAVASCRIPT
+   Firebase Compat SDK
+========================================= */
+
+/* =========================================
+   FIREBASE CONFIGURATION
+========================================= */
 
 const firebaseConfig = {
     apiKey: "AIzaSyB4C6UHLBfNkE6s-GlWDRi8t27iNS4m1yw",
@@ -14,435 +19,1702 @@ const firebaseConfig = {
     measurementId: "G-46ZTN6N0JQ"
 };
 
-// INITIALIZATION
-firebase.initializeApp(firebaseConfig);
+/* =========================================
+   GITHUB PAGES URL
+========================================= */
+
+const GITHUB_PAGES_URL =
+    "https://sudikshajarwal130-spec.github.io/SOS_SAFETY_SYSTEM/";
+
+/* =========================================
+   FIREBASE INITIALIZATION
+========================================= */
+
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
 
 const auth = firebase.auth();
 const database = firebase.database();
 
+/* =========================================
+   GLOBAL VARIABLES
+========================================= */
+
 let currentUser = null;
-let currentLocation = null;
+let currentPosition = null;
 let watchId = null;
-let sosActive = false;
+
+let userMap = null;
+let userMarker = null;
+
+let viewerMap = null;
+let viewerMarker = null;
+
+let isSOSActive = false;
+let isAlarmMuted = false;
+
 let audioContext = null;
 let alarmInterval = null;
-let contacts = JSON.parse(localStorage.getItem("sosContacts") || "{}");
 
-// DOM ELEMENTS
+let activeTrackingId = null;
+
+let viewerRef = null;
+let viewerListener = null;
+
+let shareBusy = false;
+
 const $ = id => document.getElementById(id);
 
-const sosButton = $("sosButton");
-const silenceButton = $("silenceButton");
-const resetButton = $("resetButton");
+/* =========================================
+   COMMON FUNCTIONS
+========================================= */
 
 function setText(id, value) {
-    const el = $(id);
-    if (el) el.textContent = value;
+    const element = $(id);
+
+    if (element) {
+        element.textContent = value;
+    }
+}
+
+function show(id) {
+    if ($(id)) {
+        $(id).classList.remove("hidden");
+    }
+}
+
+function hide(id) {
+    if ($(id)) {
+        $(id).classList.add("hidden");
+    }
+}
+
+function setStatus(message) {
+    setText("systemStatus", message);
 }
 
 function logActivity(message) {
     const log = $("activityLog");
+
     if (!log) return;
 
-    const item = document.createElement("p");
-    const time = document.createElement("span");
-    time.className = "log-time";
-    time.textContent = new Date().toLocaleTimeString();
+    const empty = log.querySelector(".empty-log");
 
-    item.appendChild(time);
-    item.appendChild(document.createTextNode(message));
+    if (empty) {
+        empty.remove();
+    }
+
+    const item = document.createElement("div");
+
+    item.className = "activity-item";
+
+    item.textContent =
+        `${new Date().toLocaleTimeString()} — ${message}`;
+
     log.prepend(item);
 }
 
-function updateStatus(id, value) {
-    setText(id, value);
+/* =========================================
+   CLOCK & INTERNET
+========================================= */
+
+function updateClock() {
+    setText(
+        "headerClock",
+        new Date().toLocaleTimeString()
+    );
 }
 
-// FIREBASE AUTHENTICATION
-async function initializeFirebase() {
-    setText("serverStatus", "CONNECTING...");
+setInterval(updateClock, 1000);
 
+updateClock();
+
+function updateInternetStatus() {
+    const online = navigator.onLine;
+
+    setText(
+        "internetState",
+        online ? "ONLINE" : "OFFLINE"
+    );
+
+    setText(
+        "internetPermissionStatus",
+        online ? "Internet available" : "Internet unavailable"
+    );
+}
+
+window.addEventListener("online", updateInternetStatus);
+window.addEventListener("offline", updateInternetStatus);
+
+updateInternetStatus();
+
+/* =========================================
+   TRACKING UTILITIES
+========================================= */
+
+function randomTrackingId() {
+    const bytes = new Uint8Array(24);
+
+    crypto.getRandomValues(bytes);
+
+    return Array.from(bytes)
+        .map(byte => byte.toString(16).padStart(2, "0"))
+        .join("");
+}
+
+function isViewerRoute() {
+    const params = new URLSearchParams(
+        window.location.search
+    );
+
+    return (
+        params.get("view") === "track" &&
+        !!params.get("id")
+    );
+}
+
+/* FIXED: ALWAYS GENERATE GITHUB PAGES URL */
+
+function buildTrackingURL(id) {
+    const url = new URL(GITHUB_PAGES_URL);
+
+    url.searchParams.set("view", "track");
+    url.searchParams.set("id", id);
+
+    return url.toString();
+}
+
+/* =========================================
+   GOOGLE SIGN-IN
+========================================= */
+
+async function googleSignIn() {
     try {
-        const result = await auth.signInAnonymously();
-        currentUser = result.user;
+        setText(
+            "loginMessage",
+            "Opening Google Sign-In..."
+        );
 
-        setText("serverStatus", "CONNECTED");
-        logActivity("Firebase authentication successful.");
-        return true;
+        const provider =
+            new firebase.auth.GoogleAuthProvider();
+
+        provider.setCustomParameters({
+            prompt: "select_account"
+        });
+
+        await auth.signInWithPopup(provider);
 
     } catch (error) {
-        console.error("Firebase error:", error);
-        setText("serverStatus", "CONNECTION FAILED");
-        logActivity("Firebase connection failed: " + error.message);
-        return false;
+        console.error("Google sign-in error:", error);
+
+        setText(
+            "loginMessage",
+            error.message || "Google sign-in failed."
+        );
     }
 }
 
-// SAVE LOCATION TO FIREBASE
-async function saveLocationToFirebase(position) {
-    if (!currentUser) return;
-
-    const data = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-        timestamp: Date.now(),
-        sosActive: sosActive
-    };
-
+async function googleSignOut() {
     try {
-        await database.ref("users/" + currentUser.uid + "/location").set(data);
-        setText("serverStatus", "LOCATION SYNCED");
+        stopLocationTracking();
+        stopAlarmCompletely();
+        stopViewerListener();
+
+        await auth.signOut();
+
+        currentPosition = null;
+        isSOSActive = false;
+        activeTrackingId = null;
+
+        setText("alertState", "INACTIVE");
+        setText("alertStatus", "No active alert");
+
+        logActivity("User signed out.");
+
     } catch (error) {
-        console.error("Location upload failed:", error);
-        setText("serverStatus", "SYNC FAILED");
-        logActivity("Location sync failed.");
+        console.error(error);
+
+        setStatus("Sign-out failed.");
     }
 }
 
-// GPS TRACKING
-function startLocationTracking() {
+/* =========================================
+   AUTH STATE
+========================================= */
+
+function showSignedOutPage() {
+    hide("accountSection");
+    show("loginSection");
+
+    if (isViewerRoute()) {
+        hide("userView");
+        show("viewerView");
+
+        setText(
+            "viewerState",
+            "SIGN IN REQUIRED"
+        );
+
+        setText(
+            "viewerMessage",
+            "Sign in using the Google account authorized by the owner."
+        );
+
+    } else {
+        hide("userView");
+        hide("viewerView");
+    }
+}
+
+auth.onAuthStateChanged(async user => {
+    currentUser = user;
+
+    if (!user) {
+        stopLocationTracking();
+        stopViewerListener();
+
+        showSignedOutPage();
+
+        setText("authStatus", "Not signed in");
+        setText("cloudState", "Disconnected");
+        setText("cloudPermissionStatus", "Sign in required");
+        setText("locationState", "Not signed in");
+
+        setStatus("Please sign in with Google.");
+
+        return;
+    }
+
+    hide("loginSection");
+    show("accountSection");
+
+    setText(
+        "loggedInUser",
+        user.displayName || user.email || "User"
+    );
+
+    setText("loggedInUID", user.uid);
+    setText("authStatus", "Authenticated");
+    setText("cloudState", "Connected");
+    setText("cloudPermissionStatus", "Signed in");
+
+    /* VIEWER MODE */
+
+    if (isViewerRoute()) {
+        hide("userView");
+        show("viewerView");
+
+        await startViewer();
+
+        return;
+    }
+
+    /* OWNER MODE */
+
+    hide("viewerView");
+    show("userView");
+
+    try {
+        await database
+            .ref("users/" + user.uid + "/profile")
+            .update({
+                name: user.displayName || "",
+                email: (user.email || "").toLowerCase(),
+                updatedAt:
+                    firebase.database.ServerValue.TIMESTAMP
+            });
+
+        setText("cloudState", "Synced");
+
+    } catch (error) {
+        console.error("Profile save failed:", error);
+
+        setText("cloudState", "Sync failed");
+    }
+
+    setStatus("Account connected.");
+
+    logActivity("Account authenticated.");
+
+    initializeUserMap();
+
+    await checkPermissions();
+
+    requestLocation();
+
+    loadActiveShare();
+});
+
+/* =========================================
+   MAP FUNCTIONS
+========================================= */
+
+function initializeMap(containerId) {
+    if (!$(containerId) || !window.L) {
+        return null;
+    }
+
+    const map = L.map(containerId).setView(
+        [26.9124, 75.7873],
+        13
+    );
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            attribution: "&copy; OpenStreetMap contributors"
+        }
+    ).addTo(map);
+
+    setTimeout(() => {
+        map.invalidateSize();
+    }, 300);
+
+    return map;
+}
+
+function initializeUserMap() {
+    if (userMap) return;
+
+    userMap = initializeMap("userMap");
+}
+
+function updateMapMarker(map, marker, position, emoji) {
+    if (!map || !position?.coords) {
+        return marker;
+    }
+
+    const lat = position.coords.latitude;
+    const lon = position.coords.longitude;
+
+    const icon = L.divIcon({
+        className: "person-marker",
+        html: `<div class="person-marker-inner">${emoji}</div>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+    });
+
+    if (!marker) {
+        marker = L.marker(
+            [lat, lon],
+            { icon }
+        ).addTo(map);
+
+    } else {
+        marker.setLatLng([lat, lon]);
+    }
+
+    map.setView([lat, lon], 16);
+
+    return marker;
+}
+
+/* =========================================
+   GPS LOCATION
+========================================= */
+
+function handleLocationError(error) {
+    console.error("GPS error:", error);
+
+    let message = "Location unavailable";
+    let permissionMessage = "Location error";
+
+    switch (error.code) {
+        case 1:
+            message = "Location permission denied";
+            permissionMessage = "Permission denied";
+            break;
+
+        case 2:
+            message = "GPS position unavailable";
+            permissionMessage = "Position unavailable";
+            break;
+
+        case 3:
+            message = "GPS request timed out";
+            permissionMessage = "Request timed out";
+            break;
+    }
+
+    setText("locationState", message);
+    setText("locationPermissionStatus", permissionMessage);
+    setText("permissionLocationStatus", permissionMessage);
+    setText("trackingStatus", "GPS not updating");
+
+    setStatus(message);
+}
+
+function requestLocation() {
+    if (!currentUser) {
+        setText("locationState", "Sign in required");
+        return;
+    }
+
     if (!navigator.geolocation) {
-        setText("trackingStatus", "GPS NOT SUPPORTED");
+        setText("locationState", "GPS not supported");
+        setText("locationPermissionStatus", "Not supported");
+        setText("permissionLocationStatus", "Not supported");
+
         return;
     }
 
     if (!window.isSecureContext) {
-        setText("trackingStatus", "HTTPS REQUIRED");
-        logActivity("GPS requires HTTPS or localhost.");
+        setText(
+            "locationState",
+            "Secure connection required"
+        );
+
+        setText("locationPermissionStatus", "HTTPS required");
+        setText("permissionLocationStatus", "HTTPS required");
+
+        setStatus("Open website using HTTPS or localhost.");
+
         return;
     }
 
-    if (watchId !== null) return;
+    setText("locationState", "Requesting GPS...");
+    setText("locationPermissionStatus", "Requesting permission...");
 
-    setText("trackingStatus", "REQUESTING GPS...");
-    setText("location", "Waiting for GPS...");
-    
-    watchId = navigator.geolocation.watchPosition(
-        async position => {
-            currentLocation = {
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude
-            };
+    navigator.geolocation.getCurrentPosition(
+        position => {
+            currentPosition = position;
 
-            const lat = currentLocation.latitude;
-            const lng = currentLocation.longitude;
+            updateLocationUI(position);
 
-            setText("location", lat.toFixed(6) + ", " + lng.toFixed(6));
-            setText("trackingStatus", "GPS ACTIVE");
-            setText("lastLocationUpdate", new Date().toLocaleTimeString());
+            startLocationTracking();
 
-            const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-            const mapLink = $("mapLink");
-
-            if (mapLink) {
-                mapLink.href = mapUrl;
-                mapLink.textContent = "OPEN CURRENT LOCATION IN MAPS";
-                mapLink.target = "_blank";
-            }
-
-            const map = $("map");
-            if (map) {
-                map.innerHTML = `
-                    <div class="map-placeholder">
-                        <span>📍</span>
-                        <p>GPS LOCATION ACTIVE</p>
-                        <small>${lat.toFixed(5)}, ${lng.toFixed(5)}</small>
-                        <small>Open Google Maps using the link below</small>
-                    </div>`;
-            }
-
-            await saveLocationToFirebase(position);
+            publishLocation();
         },
-
-        error => {
-            console.error("GPS error:", error);
-            setText("trackingStatus", "GPS ERROR");
-            setText("location", "Location unavailable");
-            logActivity("GPS error: " + error.message);
-        },
-
+        handleLocationError,
         {
             enableHighAccuracy: true,
-            maximumAge: 3000,
-            timeout: 15000
+            timeout: 30000,
+            maximumAge: 0
         }
     );
+}
 
-    logActivity("GPS tracking started.");
+function startLocationTracking() {
+    if (
+        !navigator.geolocation ||
+        watchId !== null
+    ) {
+        return;
+    }
+
+    watchId = navigator.geolocation.watchPosition(
+        position => {
+            currentPosition = position;
+
+            updateLocationUI(position);
+
+            publishLocation();
+        },
+        handleLocationError,
+        {
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 30000
+        }
+    );
 }
 
 function stopLocationTracking() {
-    if (watchId !== null) {
+    if (
+        watchId !== null &&
+        navigator.geolocation
+    ) {
         navigator.geolocation.clearWatch(watchId);
-        watchId = null;
     }
 
-    setText("trackingStatus", "TRACKING STOPPED");
+    watchId = null;
+
+    setText("trackingStatus", "Tracking stopped");
 }
 
-// BROWSER ALARM
-function startAlarm() {
-    stopAlarm();
+function updateLocationUI(position) {
+    const lat = position.coords.latitude;
+    const lon = position.coords.longitude;
+    const accuracy = Math.round(position.coords.accuracy);
+
+    setText("latitude", lat.toFixed(6));
+    setText("longitude", lon.toFixed(6));
+    setText("accuracy", accuracy + " metres");
+
+    setText(
+        "lastUpdated",
+        new Date(position.timestamp).toLocaleString()
+    );
+
+    setText("locationState", "Location available");
+    setText("locationPermissionStatus", "Permission granted");
+    setText("permissionLocationStatus", "Permission granted");
+    setText("trackingStatus", "Live GPS tracking active");
+    setText("trackingDot", "●");
+
+    if ($("openMapLink")) {
+        $("openMapLink").href =
+            `https://www.google.com/maps?q=${lat},${lon}`;
+    }
+
+    initializeUserMap();
+
+    if (userMap) {
+        userMarker = updateMapMarker(
+            userMap,
+            userMarker,
+            position,
+            "🚶"
+        );
+    }
+
+    updateWhatsAppLinks();
+}
+
+/* =========================================
+   FIREBASE LOCATION SYNC
+========================================= */
+
+async function publishLocation() {
+    if (!currentUser || !currentPosition) {
+        return;
+    }
+
+    if (!navigator.onLine) {
+        setText("cloudState", "Offline");
+        return;
+    }
+
+    const p = currentPosition;
+
+    const locationData = {
+        active: isSOSActive,
+        updatedAt:
+            firebase.database.ServerValue.TIMESTAMP,
+        latitude: p.coords.latitude,
+        longitude: p.coords.longitude,
+        accuracy: p.coords.accuracy
+    };
 
     try {
+        await database
+            .ref("users/" + currentUser.uid + "/location")
+            .update(locationData);
+
+        if (activeTrackingId) {
+            await database
+                .ref(
+                    "trackingSessions/" +
+                    activeTrackingId +
+                    "/location"
+                )
+                .update(locationData);
+        }
+
+        setText("cloudState", "Synced");
+
+    } catch (error) {
+        console.error("Cloud update failed:", error);
+
+        setText("cloudState", "Sync failed");
+    }
+}
+
+/* =========================================
+   SOS SOUND
+========================================= */
+
+async function startAlarm() {
+    try {
         const AudioContextClass =
-            window.AudioContext || window.webkitAudioContext;
+            window.AudioContext ||
+            window.webkitAudioContext;
 
         if (!AudioContextClass) {
-            setText("soundStatus", "AUDIO NOT SUPPORTED");
+            setText(
+                "alertStatus",
+                "SOS active — sound unavailable"
+            );
+
             return;
         }
 
-        audioContext = new AudioContextClass();
+        if (
+            !audioContext ||
+            audioContext.state === "closed"
+        ) {
+            audioContext = new AudioContextClass();
+        }
+
+        if (audioContext.state === "suspended") {
+            await audioContext.resume();
+        }
+
+        if (!isSOSActive || isAlarmMuted) {
+            return;
+        }
 
         function beep() {
-            if (!audioContext || audioContext.state === "closed") return;
+            if (
+                !audioContext ||
+                audioContext.state !== "running" ||
+                !isSOSActive ||
+                isAlarmMuted
+            ) {
+                return;
+            }
 
-            const oscillator = audioContext.createOscillator();
-            const gain = audioContext.createGain();
+            const oscillator =
+                audioContext.createOscillator();
+
+            const gain =
+                audioContext.createGain();
 
             oscillator.type = "sawtooth";
             oscillator.frequency.value = 850;
 
-            gain.gain.value = 0.12;
+            gain.gain.setValueAtTime(
+                0.12,
+                audioContext.currentTime
+            );
 
             oscillator.connect(gain);
             gain.connect(audioContext.destination);
 
             oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.3);
+
+            oscillator.stop(
+                audioContext.currentTime + 0.35
+            );
+        }
+
+        if (alarmInterval) {
+            clearInterval(alarmInterval);
         }
 
         beep();
-        alarmInterval = setInterval(beep, 700);
 
-        setText("soundStatus", "ALARM ACTIVE");
+        alarmInterval = setInterval(beep, 650);
+
+        setText("alertStatus", "SOS ALERT ACTIVE");
+
     } catch (error) {
-        console.error(error);
-        setText("soundStatus", "ALARM UNAVAILABLE");
+        console.error("Audio error:", error);
+
+        setText(
+            "alertStatus",
+            "SOS active — sound unavailable"
+        );
     }
 }
 
-function stopAlarm() {
+function silenceAlarm() {
+    isAlarmMuted = true;
+
     if (alarmInterval) {
         clearInterval(alarmInterval);
-        alarmInterval = null;
     }
 
-    if (audioContext && audioContext.state !== "closed") {
+    alarmInterval = null;
+
+    if (
+        audioContext &&
+        audioContext.state !== "closed"
+    ) {
         audioContext.close();
     }
 
     audioContext = null;
-    setText("soundStatus", "ALARM OFF");
+
+    setText(
+        "alertStatus",
+        isSOSActive
+            ? "SOS ACTIVE — SOUND MUTED"
+            : "No active alert"
+    );
 }
 
-// CONTACT MANAGEMENT
-function loadContacts() {
-    if ($("contact1")) $("contact1").value = contacts.name1 || "";
-    if ($("phone1")) $("phone1").value = contacts.phone1 || "";
-    if ($("contact2")) $("contact2").value = contacts.name2 || "";
-    if ($("phone2")) $("phone2").value = contacts.phone2 || "";
-}
-
-function saveContactDetails() {
-    contacts = {
-        name1: $("contact1")?.value.trim() || "",
-        phone1: $("phone1")?.value.trim() || "",
-        name2: $("contact2")?.value.trim() || "",
-        phone2: $("phone2")?.value.trim() || ""
-    };
-
-    localStorage.setItem("sosContacts", JSON.stringify(contacts));
-
-    setText("contactMessage", "CONTACTS SAVED");
-    logActivity("Emergency contacts saved locally.");
-    updateMessagePreview();
-}
-
-function createEmergencyMessage() {
-    let message = "EMERGENCY SOS! I need help.";
-
-    if (currentLocation) {
-        const mapUrl =
-            `https://www.google.com/maps?q=${currentLocation.latitude},${currentLocation.longitude}`;
-
-        message += "\nMy current location: " + mapUrl;
-    } else {
-        message += "\nMy GPS location is currently unavailable.";
+function stopAlarmCompletely() {
+    if (alarmInterval) {
+        clearInterval(alarmInterval);
     }
 
-    return message;
-}
+    alarmInterval = null;
 
-function updateMessagePreview() {
-    setText("messagePreview", createEmergencyMessage());
-}
-
-function sendWhatsAppAlert(phone, statusId) {
-    if (!phone) {
-        setText(statusId, "PHONE NUMBER MISSING");
-        return;
+    if (
+        audioContext &&
+        audioContext.state !== "closed"
+    ) {
+        audioContext.close();
     }
 
-    const cleanPhone = phone.replace(/\D/g, "");
-
-    if (cleanPhone.length < 10) {
-        setText(statusId, "INVALID PHONE NUMBER");
-        return;
-    }
-
-    const message = encodeURIComponent(createEmergencyMessage());
-    const url = `https://wa.me/${cleanPhone}?text=${message}`;
-
-    window.open(url, "_blank");
-
-    setText(statusId, "WHATSAPP OPENED - PRESS SEND");
-    logActivity("WhatsApp alert prepared. Manual Send required.");
+    audioContext = null;
+    isAlarmMuted = false;
 }
 
-// SOS ACTIVATION
+/* =========================================
+   SOS CONTROLS
+========================================= */
+
 async function activateSOS() {
-    if (sosActive) return;
+    if (!currentUser) {
+        setStatus(
+            "Sign in before activating the demo alert."
+        );
 
-    sosActive = true;
+        return;
+    }
 
-    setText("systemStatus", "EMERGENCY ACTIVE");
-    setText("alertStatus", "SOS ACTIVATED");
-    setText("shareLinkStatus", "LOCATION SYNC PENDING");
+    isSOSActive = true;
+    isAlarmMuted = false;
 
-    logActivity("EMERGENCY SOS ACTIVATED.");
+    setText("alertState", "ACTIVE");
+    setText("alertStatus", "SOS ALERT ACTIVE");
+
+    setStatus("Emergency demo alert activated.");
+
+    logActivity("SOS demo alert activated.");
 
     startAlarm();
-    startLocationTracking();
 
-    if (currentUser && currentLocation) {
-        const position = {
-            coords: {
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                accuracy: 0
+    if (!currentPosition) {
+        requestLocation();
+
+    } else {
+        await publishLocation();
+    }
+}
+
+async function stopSOS() {
+    isSOSActive = false;
+
+    stopAlarmCompletely();
+
+    setText("alertState", "INACTIVE");
+    setText("alertStatus", "SOS alert stopped");
+
+    setStatus("SOS demo alert stopped.");
+
+    await publishLocation();
+
+    await stopSecureSharing(false);
+
+    setText(
+        "shareLinkStatus",
+        "SOS reset. Location sharing stopped."
+    );
+
+    logActivity(
+        "SOS reset and location sharing stopped."
+    );
+}
+
+/* =========================================
+   WHATSAPP CONTACTS
+========================================= */
+
+function normalizePhoneNumber(phone) {
+    if (!phone) return "";
+
+    let number = String(phone).replace(/\D/g, "");
+
+    if (number.startsWith("00")) {
+        number = number.slice(2);
+    }
+
+    if (
+        number.length === 11 &&
+        number.startsWith("0")
+    ) {
+        number = number.slice(1);
+    }
+
+    if (number.length === 10) {
+        number = "91" + number;
+    }
+
+    if (
+        number.length < 11 ||
+        number.length > 15
+    ) {
+        return "";
+    }
+
+    return number;
+}
+
+function makeWhatsAppLink(phone) {
+    const number = normalizePhoneNumber(phone);
+
+    if (!number) return "#";
+
+    let message =
+        "SOS! I need help. Please contact me immediately.";
+
+    if (currentPosition) {
+        const lat = currentPosition.coords.latitude;
+        const lon = currentPosition.coords.longitude;
+
+        message +=
+            ` My current location: https://www.google.com/maps?q=${lat},${lon}`;
+
+    } else {
+        message +=
+            " My current GPS location is not available yet.";
+    }
+
+    message +=
+        " This is an SOS Guard demonstration message.";
+
+    return (
+        "https://wa.me/" +
+        number +
+        "?text=" +
+        encodeURIComponent(message)
+    );
+}
+
+function loadContacts() {
+    let saved = {};
+
+    try {
+        saved = JSON.parse(
+            localStorage.getItem("sosContacts") || "{}"
+        );
+
+    } catch (error) {
+        console.error(error);
+    }
+
+    if ($("contact1Name")) {
+        $("contact1Name").value = saved.name1 || "";
+    }
+
+    if ($("contact1Phone")) {
+        $("contact1Phone").value = saved.phone1 || "";
+    }
+
+    if ($("contact2Name")) {
+        $("contact2Name").value = saved.name2 || "";
+    }
+
+    if ($("contact2Phone")) {
+        $("contact2Phone").value = saved.phone2 || "";
+    }
+
+    updateWhatsAppLinks();
+}
+
+function saveContacts() {
+    const data = {
+        name1: $("contact1Name")?.value.trim() || "",
+        phone1: $("contact1Phone")?.value.trim() || "",
+        name2: $("contact2Name")?.value.trim() || "",
+        phone2: $("contact2Phone")?.value.trim() || ""
+    };
+
+    if (
+        data.phone1 &&
+        !normalizePhoneNumber(data.phone1)
+    ) {
+        setText(
+            "contactMessage",
+            "Contact 1 number is invalid."
+        );
+
+        return;
+    }
+
+    if (
+        data.phone2 &&
+        !normalizePhoneNumber(data.phone2)
+    ) {
+        setText(
+            "contactMessage",
+            "Contact 2 number is invalid."
+        );
+
+        return;
+    }
+
+    localStorage.setItem(
+        "sosContacts",
+        JSON.stringify(data)
+    );
+
+    updateWhatsAppLinks();
+
+    setText(
+        "contactMessage",
+        "Contacts saved on this device."
+    );
+
+    logActivity("Emergency contacts saved locally.");
+}
+
+function updateWhatsAppLinks() {
+    let saved = {};
+
+    try {
+        saved = JSON.parse(
+            localStorage.getItem("sosContacts") || "{}"
+        );
+
+    } catch (error) {
+        console.error(error);
+    }
+
+    const link1 = $("whatsapp1");
+    const link2 = $("whatsapp2");
+
+    if (link1) {
+        link1.href = makeWhatsAppLink(
+            saved.phone1 || ""
+        );
+
+        link1.target = "_blank";
+        link1.rel = "noopener noreferrer";
+    }
+
+    if (link2) {
+        link2.href = makeWhatsAppLink(
+            saved.phone2 || ""
+        );
+
+        link2.target = "_blank";
+        link2.rel = "noopener noreferrer";
+    }
+}
+
+/* =========================================
+   SECURE TRACKING SHARING
+========================================= */
+
+async function startSecureSharing() {
+    if (!currentUser) {
+        setText("shareLinkStatus", "Sign in first.");
+        return;
+    }
+
+    if (!currentPosition) {
+        setText(
+            "shareLinkStatus",
+            "Waiting for GPS location. Allow location access first."
+        );
+
+        requestLocation();
+
+        return;
+    }
+
+    const viewerEmail = (
+        $("viewerEmail")?.value || ""
+    ).trim().toLowerCase();
+
+    const validEmail =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!validEmail.test(viewerEmail)) {
+        setText(
+            "shareLinkStatus",
+            "Enter a valid Google email address."
+        );
+
+        return;
+    }
+
+    if (
+        viewerEmail ===
+        (currentUser.email || "").toLowerCase()
+    ) {
+        setText(
+            "shareLinkStatus",
+            "Use a different Google account as viewer."
+        );
+
+        return;
+    }
+
+    if (shareBusy) return;
+
+    shareBusy = true;
+
+    setText(
+        "shareLinkStatus",
+        "Creating secure tracking session..."
+    );
+
+    try {
+        if (activeTrackingId) {
+            await stopSecureSharing(false);
+        }
+
+        const id = randomTrackingId();
+
+        const initialLocation = {
+            latitude: currentPosition.coords.latitude,
+            longitude: currentPosition.coords.longitude,
+            accuracy: currentPosition.coords.accuracy,
+            updatedAt:
+                firebase.database.ServerValue.TIMESTAMP,
+            active: isSOSActive
+        };
+
+        const session = {
+            ownerUid: currentUser.uid,
+
+            ownerEmail:
+                (currentUser.email || "").toLowerCase(),
+
+            allowedViewerEmail: viewerEmail,
+
+            createdAt:
+                firebase.database.ServerValue.TIMESTAMP,
+
+            active: true,
+
+            location: initialLocation
+        };
+
+        await database
+            .ref("trackingSessions/" + id)
+            .set(session);
+
+        activeTrackingId = id;
+
+        localStorage.setItem(
+            "sosActiveTrackingId",
+            id
+        );
+
+        const trackingURL = buildTrackingURL(id);
+
+        if ($("shareLink")) {
+            $("shareLink").value = trackingURL;
+        }
+
+        setText(
+            "shareLinkStatus",
+            "Secure link created. Share it only with the authorized person."
+        );
+
+        setText(
+            "shareHelp",
+            `Authorized Google account: ${viewerEmail}. Sharing continues until stopped.`
+        );
+
+        logActivity(
+            "Secure location sharing started."
+        );
+
+    } catch (error) {
+        console.error("Share creation failed:", error);
+
+        setText(
+            "shareLinkStatus",
+            "Could not create link: " + error.message
+        );
+
+    } finally {
+        shareBusy = false;
+    }
+}
+
+async function stopSecureSharing(showMessage = true) {
+    if (!currentUser || !activeTrackingId) {
+        if (showMessage) {
+            setText(
+                "shareLinkStatus",
+                "There is no active sharing session on this device."
+            );
+        }
+
+        return;
+    }
+
+    const id = activeTrackingId;
+
+    try {
+        await database
+            .ref("trackingSessions/" + id)
+            .update({
+                active: false,
+
+                stoppedAt:
+                    firebase.database.ServerValue.TIMESTAMP
+            });
+
+        activeTrackingId = null;
+
+        localStorage.removeItem(
+            "sosActiveTrackingId"
+        );
+
+        if ($("shareLink")) {
+            $("shareLink").value = "";
+        }
+
+        setText(
+            "shareHelp",
+            "Location is not currently being shared."
+        );
+
+        if (showMessage) {
+            setText(
+                "shareLinkStatus",
+                "Sharing stopped. The tracking session is inactive."
+            );
+        }
+
+        logActivity(
+            "Secure location sharing stopped."
+        );
+
+    } catch (error) {
+        console.error("Stop sharing failed:", error);
+
+        setText(
+            "shareLinkStatus",
+            "Could not stop sharing: " + error.message
+        );
+    }
+}
+
+async function loadActiveShare() {
+    if (!currentUser) return;
+
+    const id = localStorage.getItem(
+        "sosActiveTrackingId"
+    );
+
+    if (!id) return;
+
+    try {
+        const snapshot = await database
+            .ref("trackingSessions/" + id)
+            .once("value");
+
+        const session = snapshot.val();
+
+        if (
+            !session ||
+            session.ownerUid !== currentUser.uid ||
+            session.active !== true
+        ) {
+            localStorage.removeItem(
+                "sosActiveTrackingId"
+            );
+
+            activeTrackingId = null;
+
+            return;
+        }
+
+        activeTrackingId = id;
+
+        if ($("shareLink")) {
+            $("shareLink").value =
+                buildTrackingURL(id);
+        }
+
+        if ($("viewerEmail")) {
+            $("viewerEmail").value =
+                session.allowedViewerEmail || "";
+        }
+
+        setText(
+            "shareHelp",
+            `Authorized Google account: ${session.allowedViewerEmail}.`
+        );
+
+        setText(
+            "shareLinkStatus",
+            "Existing secure sharing session restored."
+        );
+
+    } catch (error) {
+        console.error(
+            "Could not restore sharing session:",
+            error
+        );
+    }
+}
+
+async function copyShareLink() {
+    const value = $("shareLink")?.value || "";
+
+    if (!value) {
+        setText(
+            "shareLinkStatus",
+            "Create a secure tracking link first."
+        );
+
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(value);
+
+        setText(
+            "shareLinkStatus",
+            "Tracking link copied."
+        );
+
+    } catch (error) {
+        $("shareLink").focus();
+        $("shareLink").select();
+
+        setText(
+            "shareLinkStatus",
+            "Clipboard blocked. Press Ctrl+C to copy the selected link."
+        );
+    }
+}
+
+/* =========================================
+   TRACKING VIEWER
+========================================= */
+
+function stopViewerListener() {
+    if (viewerRef && viewerListener) {
+        viewerRef.off("value", viewerListener);
+    }
+
+    viewerRef = null;
+    viewerListener = null;
+}
+
+async function startViewer() {
+    stopViewerListener();
+
+    const params = new URLSearchParams(
+        window.location.search
+    );
+
+    const id = params.get("id");
+
+    if (!id || !currentUser) return;
+
+    /* Validate tracking ID format */
+
+    if (!/^[a-f0-9]{48}$/i.test(id)) {
+        setText("viewerState", "INVALID LINK");
+
+        setText(
+            "viewerMessage",
+            "This tracking link is invalid."
+        );
+
+        return;
+    }
+
+    setText("viewerState", "VERIFYING ACCESS");
+
+    setText(
+        "viewerMessage",
+        "Checking authorized Google account..."
+    );
+
+    try {
+        const token =
+            await currentUser.getIdTokenResult(true);
+
+        const email = (
+            token.claims.email ||
+            currentUser.email ||
+            ""
+        ).toLowerCase();
+
+        const ref = database.ref(
+            "trackingSessions/" + id
+        );
+
+        const snapshot = await ref.once("value");
+
+        const session = snapshot.val();
+
+        if (!session) {
+            throw new Error(
+                "Tracking session does not exist."
+            );
+        }
+
+        if (session.active !== true) {
+            throw new Error(
+                "The owner has stopped location sharing."
+            );
+        }
+
+        if (
+            !email ||
+            email !==
+            String(
+                session.allowedViewerEmail || ""
+            ).toLowerCase()
+        ) {
+            throw new Error(
+                "Access denied. Sign in with the Google account authorized by the owner."
+            );
+        }
+
+        setText("viewerState", "ACCESS GRANTED");
+
+        setText(
+            "viewerMessage",
+            "Authorized viewer. Receiving location updates."
+        );
+
+        viewerMap = initializeMap("viewerMap");
+
+        viewerRef = ref;
+
+        viewerListener = snapshot => {
+            const sessionData = snapshot.val();
+
+            if (!sessionData) {
+                setText(
+                    "viewerState",
+                    "SESSION NOT FOUND"
+                );
+
+                setText(
+                    "viewerMessage",
+                    "This tracking session is unavailable."
+                );
+
+                setText(
+                    "viewerTrackingStatus",
+                    "NOT CONNECTED"
+                );
+
+                return;
+            }
+
+            if (sessionData.active !== true) {
+                setText(
+                    "viewerState",
+                    "SHARING STOPPED"
+                );
+
+                setText(
+                    "viewerMessage",
+                    "The owner has stopped location sharing."
+                );
+
+                setText(
+                    "viewerTrackingStatus",
+                    "LOCATION SHARING STOPPED"
+                );
+            }
+
+            const location = sessionData.location;
+
+            if (
+                !location ||
+                typeof location.latitude !== "number" ||
+                typeof location.longitude !== "number"
+            ) {
+                setText(
+                    "viewerTrackingStatus",
+                    "WAITING FOR GPS"
+                );
+
+                return;
+            }
+
+            const position = {
+                coords: {
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    accuracy:
+                        Number(location.accuracy) || 0
+                }
+            };
+
+            if (viewerMap) {
+                viewerMarker = updateMapMarker(
+                    viewerMap,
+                    viewerMarker,
+                    position,
+                    "📍"
+                );
+            }
+
+            setText(
+                "viewerLatitude",
+                location.latitude.toFixed(6)
+            );
+
+            setText(
+                "viewerLongitude",
+                location.longitude.toFixed(6)
+            );
+
+            setText(
+                "viewerAccuracy",
+                Math.round(
+                    location.accuracy || 0
+                ) + " metres"
+            );
+
+            setText(
+                "viewerLastUpdated",
+                location.updatedAt
+                    ? new Date(
+                        location.updatedAt
+                    ).toLocaleString()
+                    : "Not available"
+            );
+
+            if (sessionData.active === true) {
+                setText(
+                    "viewerTrackingStatus",
+                    location.active
+                        ? "SOS ALERT ACTIVE"
+                        : "LIVE LOCATION SHARING"
+                );
+            }
+
+            if ($("viewerOpenMap")) {
+                $("viewerOpenMap").href =
+                    `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
             }
         };
 
-        await saveLocationToFirebase(position);
-    }
+        viewerRef.on(
+            "value",
+            viewerListener,
+            error => {
+                console.error(
+                    "Viewer listener error:",
+                    error
+                );
 
-    updateMessagePreview();
+                setText(
+                    "viewerState",
+                    "ACCESS ERROR"
+                );
+
+                setText(
+                    "viewerMessage",
+                    "Could not receive location data."
+                );
+            }
+        );
+
+    } catch (error) {
+        console.error(
+            "Viewer access error:",
+            error
+        );
+
+        setText(
+            "viewerState",
+            "ACCESS DENIED"
+        );
+
+        setText(
+            "viewerMessage",
+            error.message || "Unable to verify access."
+        );
+
+        setText(
+            "viewerTrackingStatus",
+            "NOT CONNECTED"
+        );
+    }
 }
 
-// RESET
-async function resetSystem() {
-    sosActive = false;
+/* =========================================
+   PERMISSION CHECK
+========================================= */
 
-    stopAlarm();
-    stopLocationTracking();
+async function checkPermissions() {
+    setText(
+        "internetPermissionStatus",
+        navigator.onLine
+            ? "Internet available"
+            : "Internet unavailable"
+    );
 
-    setText("systemStatus", "SYSTEM STANDBY");
-    setText("alertStatus", "NO ACTIVE ALERT");
-    setText("shareLinkStatus", "NOT SHARED");
-    setText("location", "Tracking stopped");
-    setText("trackingStatus", "STANDBY");
+    if (!navigator.geolocation) {
+        setText(
+            "locationPermissionStatus",
+            "GPS not supported"
+        );
 
-    if (currentUser) {
+        setText(
+            "permissionLocationStatus",
+            "GPS not supported"
+        );
+
+    } else if (!window.isSecureContext) {
+        setText(
+            "locationPermissionStatus",
+            "HTTPS required"
+        );
+
+        setText(
+            "permissionLocationStatus",
+            "HTTPS required"
+        );
+
+    } else if (navigator.permissions?.query) {
         try {
-            await database.ref(
-                "users/" + currentUser.uid + "/location/sosActive"
-            ).set(false);
+            const result =
+                await navigator.permissions.query({
+                    name: "geolocation"
+                });
+
+            function updatePermission() {
+                let message =
+                    "Permission not requested";
+
+                if (result.state === "granted") {
+                    message = "Permission granted";
+
+                } else if (result.state === "denied") {
+                    message = "Permission denied";
+                }
+
+                setText(
+                    "locationPermissionStatus",
+                    message
+                );
+
+                setText(
+                    "permissionLocationStatus",
+                    message
+                );
+            }
+
+            updatePermission();
+
+            result.onchange = updatePermission;
+
         } catch (error) {
-            console.error(error);
+            console.error(
+                "Permission check error:",
+                error
+            );
+
+            setText(
+                "locationPermissionStatus",
+                "Status unavailable"
+            );
+
+            setText(
+                "permissionLocationStatus",
+                "Status unavailable"
+            );
         }
     }
 
-    currentLocation = null;
-    updateMessagePreview();
-
-    logActivity("System reset.");
-}
-
-// PERMISSION CHECK
-async function verifyPermissions() {
-    setText("permissionResult", "CHECKING PERMISSIONS...");
-
     setText(
-        "locationPermissionStatus",
-        navigator.geolocation ? "SUPPORTED - REQUEST ON GPS START" : "NOT SUPPORTED"
-    );
-
-    setText(
-        "internetPermissionStatus",
-        navigator.onLine ? "ONLINE" : "OFFLINE"
-    );
-
-    setText(
-        "whatsappPermissionStatus",
-        "MANUAL SEND REQUIRED"
-    );
-
-    setText(
-        "permissionResult",
-        "Permission status checked. GPS permission is requested when tracking starts."
+        "cloudPermissionStatus",
+        currentUser
+            ? "Signed in"
+            : "Sign in required"
     );
 }
 
-// EVENT LISTENERS
-if (sosButton) {
-    sosButton.addEventListener("click", activateSOS);
-}
+/* =========================================
+   BUTTON EVENTS
+========================================= */
 
-if (silenceButton) {
-    silenceButton.addEventListener("click", stopAlarm);
-}
+$("googleSignInButton")?.addEventListener(
+    "click",
+    googleSignIn
+);
 
-if (resetButton) {
-    resetButton.addEventListener("click", resetSystem);
-}
+$("googleSignOutButton")?.addEventListener(
+    "click",
+    googleSignOut
+);
 
-if ($("permissionButton")) {
-    $("permissionButton").addEventListener("click", verifyPermissions);
-}
+$("sosButton")?.addEventListener(
+    "click",
+    activateSOS
+);
 
-if ($("locationButton")) {
-    $("locationButton").addEventListener("click", startLocationTracking);
-}
+$("silenceButton")?.addEventListener(
+    "click",
+    silenceAlarm
+);
 
-if ($("saveContacts")) {
-    $("saveContacts").addEventListener("click", saveContactDetails);
-}
+$("stopButton")?.addEventListener(
+    "click",
+    stopSOS
+);
 
-if ($("sendContact1")) {
-    $("sendContact1").addEventListener("click", () => {
-        sendWhatsAppAlert(contacts.phone1, "deliveryStatus1");
-    });
-}
+$("saveContacts")?.addEventListener(
+    "click",
+    saveContacts
+);
 
-if ($("sendContact2")) {
-    $("sendContact2").addEventListener("click", () => {
-        sendWhatsAppAlert(contacts.phone2, "deliveryStatus2");
-    });
-}
+$("permissionButton")?.addEventListener(
+    "click",
+    async () => {
+        await checkPermissions();
 
-window.addEventListener("online", () => {
-    setText("internetPermissionStatus", "ONLINE");
-});
+        if (
+            currentUser &&
+            !isViewerRoute()
+        ) {
+            requestLocation();
 
-window.addEventListener("offline", () => {
-    setText("internetPermissionStatus", "OFFLINE");
-});
+        } else if (!currentUser) {
+            setStatus(
+                "Sign in before checking GPS."
+            );
+        }
+    }
+);
 
-// STARTUP
-loadContacts();
-updateMessagePreview();
+$("startShareButton")?.addEventListener(
+    "click",
+    startSecureSharing
+);
 
-setText("systemStatus", "INITIALIZING...");
-setText("serverStatus", "CONNECTING...");
-setText("trackingStatus", "STANDBY");
-setText("alertStatus", "NO ACTIVE ALERT");
-setText("soundStatus", "ALARM OFF");
-setText("shareLinkStatus", "NOT CREATED");
+$("copyLinkButton")?.addEventListener(
+    "click",
+    copyShareLink
+);
 
-initializeFirebase();
-verifyPermissions();
+$("stopShareButton")?.addEventListener(
+    "click",
+    () => stopSecureSharing(true)
+);
 
-logActivity("SOS Safety System initialized.");
+$("clearLog")?.addEventListener(
+    "click",
+    () => {
+        const log = $("activityLog");
+
+        if (log) {
+            log.innerHTML = "";
+        }
+    }
+);
+
+/* =========================================
+   STARTUP
+========================================= */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+        loadContacts();
+
+        checkPermissions();
+
+        updateClock();
+
+        updateInternetStatus();
+
+        logActivity(
+            "SOS Guard interface loaded."
+        );
+    }
+);
