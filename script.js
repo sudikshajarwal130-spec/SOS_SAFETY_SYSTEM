@@ -1632,6 +1632,97 @@ async function checkPermissions() {
 }
 
 /* =========================================
+   ESP32 WEB BLUETOOTH
+========================================= */
+
+function setBleMessage(message) {
+    setText("bleMessage", message);
+}
+
+function handleBleDisconnect() {
+    hardwareConnected = false;
+    bleServer = null;
+    bleCharacteristic = null;
+    setText("bleDeviceStatus", "NOT CONNECTED");
+    setText("bleGpsStatus", "WAITING");
+    setBleMessage("Hardware disconnected. You can reconnect.");
+    if ($("connectBleButton")) $("connectBleButton").disabled = false;
+    if ($("disconnectBleButton")) $("disconnectBleButton").disabled = true;
+    logActivity("ESP32 hardware disconnected.");
+}
+
+function handleBleData(event) {
+    try {
+        const raw = new TextDecoder().decode(event.target.value);
+        setText("bleLastMessage", raw);
+        const data = JSON.parse(raw);
+        setText("bleDeviceStatus", "CONNECTED");
+        setText("bleGpsStatus", data.gps ? "GPS FIX AVAILABLE" : "SEARCHING FOR GPS");
+
+        if (data.gps && Number.isFinite(Number(data.lat)) && Number.isFinite(Number(data.lon))) {
+            const lat = Number(data.lat), lon = Number(data.lon);
+            hardwarePosition = { latitude: lat, longitude: lon, hdop: Number(data.hdop) || null, timestamp: Date.now() };
+            currentPosition = { coords: { latitude: lat, longitude: lon, accuracy: null }, timestamp: Date.now() };
+            updateLocationUI(currentPosition);
+            setText("accuracy", hardwarePosition.hdop ? "HDOP " + hardwarePosition.hdop : "Not reported");
+            setText("trackingStatus", "Live location from ESP32 GPS");
+            publishLocation();
+        }
+
+        if (data.sos === true) {
+            setText("alertState", "ACTIVE");
+            setText("alertStatus", "HARDWARE SOS SIGNAL RECEIVED");
+        }
+    } catch (error) {
+        console.error("Invalid ESP32 BLE data:", error);
+        setBleMessage("Connected, but received data could not be read as JSON.");
+    }
+}
+
+async function connectHardware() {
+    if (!navigator.bluetooth) {
+        setBleMessage("Web Bluetooth unavailable. Use the latest Chrome on HTTPS.");
+        return;
+    }
+    if (!window.isSecureContext) {
+        setBleMessage("Open the HTTPS GitHub Pages address.");
+        return;
+    }
+
+    const button = $("connectBleButton");
+    if (button) button.disabled = true;
+    setBleMessage("Select SOS_GUARD_ESP32 in the Bluetooth popup...");
+
+    try {
+        bleDevice = await navigator.bluetooth.requestDevice({
+            filters: [{ name: "SOS_GUARD_ESP32" }],
+            optionalServices: [BLE_SERVICE_UUID]
+        });
+        bleDevice.addEventListener("gattserverdisconnected", handleBleDisconnect);
+        bleServer = await bleDevice.gatt.connect();
+        const service = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
+        bleCharacteristic = await service.getCharacteristic(BLE_CHARACTERISTIC_UUID);
+        await bleCharacteristic.startNotifications();
+        bleCharacteristic.addEventListener("characteristicvaluechanged", handleBleData);
+
+        hardwareConnected = true;
+        setText("bleDeviceStatus", "CONNECTED");
+        setBleMessage("Connected to " + bleDevice.name + ". Waiting for GPS data...");
+        if ($("disconnectBleButton")) $("disconnectBleButton").disabled = false;
+        logActivity("ESP32 hardware connected through Bluetooth.");
+    } catch (error) {
+        console.error("ESP32 BLE connection failed:", error);
+        setBleMessage("Connection failed: " + (error.message || error));
+        if (button) button.disabled = false;
+    }
+}
+
+function disconnectHardware() {
+    if (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+    else handleBleDisconnect();
+}
+
+/* =========================================
    BUTTON EVENTS
 ========================================= */
 
