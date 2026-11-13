@@ -340,6 +340,18 @@
                 </section>
 
 
+
+                <!-- ESP32 BLUETOOTH HARDWARE -->
+                <section class="panel">
+                    <div class="panel-heading">03 / ESP32 HARDWARE CONNECTION</div>
+                    <p>HARDWARE STATUS: <strong id="bleDeviceStatus">NOT CONNECTED</strong></p>
+                    <p>GPS SOURCE: <strong id="bleGpsStatus">WAITING</strong></p>
+                    <p>LAST BLE DATA: <strong id="bleLastMessage">No data received</strong></p>
+                    <button id="connectBleButton" class="action-button" type="button">CONNECT SOS GUARD HARDWARE</button>
+                    <button id="disconnectBleButton" class="secondary-button" type="button" disabled>DISCONNECT HARDWARE</button>
+                    <p id="bleMessage">Use Chrome on HTTPS. Disconnect nRF Connect before connecting.</p>
+                </section>
+
                 <!-- OWNER LOCATION -->
 
                 <section class="panel location-panel">
@@ -388,7 +400,7 @@
 
                         <p>
                             SERVER:
-                            <strong id="cloudState">NOT CONNECTED</strong>
+                            <strong id="locationCloudState">NOT CONNECTED</strong>
                         </p>
 
                     </div>
