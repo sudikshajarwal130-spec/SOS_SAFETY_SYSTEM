@@ -1698,7 +1698,7 @@ async function connectHardware() {
 
     try {
         bleDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ services: [BLE_SERVICE_UUID] }],
+            acceptAllDevices: true,
             optionalServices: [BLE_SERVICE_UUID]
         });
         bleDevice.addEventListener("gattserverdisconnected", handleBleDisconnect);
