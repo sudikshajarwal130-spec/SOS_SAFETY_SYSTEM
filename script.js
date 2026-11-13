@@ -64,6 +64,16 @@ let viewerListener = null;
 
 let shareBusy = false;
 
+// ESP32 Web Bluetooth
+const BLE_SERVICE_UUID = "12345678-1234-1234-1234-123456789000";
+const BLE_CHARACTERISTIC_UUID = "12345678-1234-1234-1234-123456789001";
+let bleDevice = null;
+let bleServer = null;
+let bleCharacteristic = null;
+let hardwareConnected = false;
+let hardwarePosition = null;
+
+
 const $ = id => document.getElementById(id);
 
 /* =========================================
@@ -326,11 +336,13 @@ auth.onAuthStateChanged(async user => {
             });
 
         setText("cloudState", "Synced");
+        setText("locationCloudState", "Synced");
 
     } catch (error) {
         console.error("Profile save failed:", error);
 
         setText("cloudState", "Sync failed");
+        setText("locationCloudState", "Sync failed");
     }
 
     setStatus("Account connected.");
@@ -1622,6 +1634,9 @@ async function checkPermissions() {
 /* =========================================
    BUTTON EVENTS
 ========================================= */
+
+$("connectBleButton")?.addEventListener("click", connectHardware);
+$("disconnectBleButton")?.addEventListener("click", disconnectHardware);
 
 $("googleSignInButton")?.addEventListener(
     "click",
