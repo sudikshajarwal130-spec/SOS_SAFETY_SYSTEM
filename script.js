@@ -1665,7 +1665,10 @@ function handleBleData(event) {
             currentPosition = { coords: { latitude: lat, longitude: lon, accuracy: null }, timestamp: Date.now() };
             updateLocationUI(currentPosition);
             setText("accuracy", hardwarePosition.hdop ? "HDOP " + hardwarePosition.hdop : "Not reported");
-            setText("trackingStatus", "Live location from ESP32 GPS");
+            setText("trackingStatus", "LIVE — ESP32 GPS");
+            setBleMessage("ESP32 connected. GPS coordinates are being received.");
+            const placeholder = $("userMap")?.querySelector(".map-placeholder");
+            if (placeholder) placeholder.remove();
             publishLocation();
         }
 
@@ -1707,7 +1710,7 @@ async function connectHardware() {
 
         hardwareConnected = true;
         setText("bleDeviceStatus", "CONNECTED");
-        setBleMessage("Connected to " + bleDevice.name + ". Waiting for GPS data...");
+        setBleMessage(bleDevice.name ? "Connected to " + bleDevice.name + ". Waiting for GPS data..." : "BLE device connected. Waiting for GPS data...");
         if ($("disconnectBleButton")) $("disconnectBleButton").disabled = false;
         logActivity("ESP32 hardware connected through Bluetooth.");
     } catch (error) {
