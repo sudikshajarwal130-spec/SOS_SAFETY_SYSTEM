@@ -737,3 +737,114 @@ input:focus-visible {
     }
 
 }
+
+
+/* =====================================
+   DASHBOARD POLISH — NOV 2026
+===================================== */
+
+.account-bar {
+    margin: 24px auto 0;
+    width: 92%;
+    max-width: 1500px;
+    background: linear-gradient(120deg, rgba(35, 10, 16, .96), rgba(12, 12, 12, .98));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.account-bar > div { display: grid; gap: 6px; min-width: 0; }
+.account-bar strong { color: var(--red); letter-spacing: 1px; }
+.account-bar p { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.account-bar p span { color: #ddd; }
+
+.permission-list > p {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 14px;
+    background: rgba(255,255,255,.025);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 6px;
+    color: #c5c5c5;
+    font-size: 13px;
+}
+.permission-list > p strong {
+    color: var(--green);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    text-align: right;
+}
+
+.esp32-panel { border-color: rgba(53,230,154,.28); }
+.esp32-panel .panel-heading { color: var(--green); }
+.esp32-panel > p {
+    display: grid;
+    grid-template-columns: minmax(115px, .7fr) minmax(0, 1.3fr);
+    align-items: start;
+    gap: 12px;
+    padding: 12px 13px;
+    margin: 9px 0;
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 6px;
+    background: rgba(255,255,255,.025);
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: .5px;
+}
+.esp32-panel > p strong {
+    color: var(--green);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+.esp32-panel #bleLastMessage { font-family: monospace; font-size: 11px; }
+.esp32-panel #connectBleButton { margin-top: 12px; }
+.esp32-panel #disconnectBleButton { width: 100%; margin-top: 10px; }
+#bleMessage, #contactMessage, #shareLinkStatus, #shareHelp {
+    display: block;
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+.location-panel > a,
+.delivery-card a {
+    display: inline-block;
+    margin-top: 14px;
+    color: var(--green);
+    font-size: 12px;
+    text-decoration: none;
+    letter-spacing: .5px;
+}
+.location-panel > a:hover,
+.delivery-card a:hover { text-decoration: underline; }
+.share-controls > p { color: var(--muted); line-height: 1.6; font-size: 13px; }
+.share-controls label { display:block; margin: 15px 0 7px; color: var(--muted); font-size: 10px; letter-spacing: 1px; }
+.share-controls input {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 13px;
+    margin: 0 0 12px;
+    color: var(--white);
+    background: #080808;
+    border: 1px solid #393030;
+    border-radius: 5px;
+    outline: none;
+}
+.share-controls input:focus { border-color: var(--red); box-shadow: 0 0 10px var(--red-glow); }
+.share-controls .secondary-button { width: 100%; margin-top: 10px; }
+.delivery-card p { line-height: 1.6; }
+#clearLog { width: 100%; margin-top: 12px; }
+button:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
+
+@media (max-width: 1000px) {
+    .account-bar { width: 92%; }
+}
+@media (max-width: 600px) {
+    .account-bar { width: 94%; margin-top: 16px; }
+    .esp32-panel > p { grid-template-columns: 1fr; gap: 5px; }
+    .esp32-panel > p strong { text-align: left; }
+}
