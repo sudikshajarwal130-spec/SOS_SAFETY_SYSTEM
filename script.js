@@ -1695,7 +1695,7 @@ async function connectHardware() {
 
     try {
         bleDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ name: "SOS_GUARD_ESP32" }],
+            filters: [{ services: [BLE_SERVICE_UUID] }],
             optionalServices: [BLE_SERVICE_UUID]
         });
         bleDevice.addEventListener("gattserverdisconnected", handleBleDisconnect);
