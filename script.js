@@ -771,54 +771,75 @@ function stopAlarmCompletely() {
 
 async function activateSOS() {
     if (!currentUser) {
-        setStatus(
-            "Sign in before activating the demo alert."
-        );
-
+        setStatus("Sign in before activating the demo alert.");
         return;
     }
 
     isSOSActive = true;
     isAlarmMuted = false;
-
     setText("alertState", "ACTIVE");
     setText("alertStatus", "SOS ALERT ACTIVE");
-
-    setStatus("Emergency demo alert activated.");
-
-    logActivity("SOS demo alert activated.");
-
     startAlarm();
+
+    let hardwareSent = false;
+
+    if (hardwareConnected) {
+        try {
+            hardwareSent = await sendBleCommand("SOS");
+        } catch (error) {
+            console.error("Could not send SOS command to ESP32:", error);
+        }
+    }
+
+    if (hardwareSent) {
+        setStatus("SOS demo alert activated. ESP32 command sent.");
+        logActivity("Website SOS activated and command sent to ESP32.");
+    } else if (hardwareConnected) {
+        setStatus("Website SOS active, but ESP32 command could not be sent.");
+        logActivity("WARNING: ESP32 did not confirm the website SOS command.");
+    } else {
+        setStatus("Website-only demo alert active. ESP32 is not connected.");
+        logActivity("Website-only SOS demo alert activated; no hardware command sent.");
+    }
 
     if (!currentPosition) {
         requestLocation();
-
     } else {
         await publishLocation();
     }
 }
 
 async function stopSOS() {
+    let hardwareCleared = false;
+
+    if (hardwareConnected) {
+        try {
+            hardwareCleared = await sendBleCommand("CANCEL");
+        } catch (error) {
+            console.error("Could not send CANCEL command to ESP32:", error);
+        }
+    }
+
     isSOSActive = false;
-
     stopAlarmCompletely();
-
     setText("alertState", "INACTIVE");
     setText("alertStatus", "SOS alert stopped");
 
-    setStatus("SOS demo alert stopped.");
-
-    await publishLocation();
-
-    await stopSecureSharing(false);
-
-    setText(
-        "shareLinkStatus",
-        "SOS reset. Location sharing stopped."
+    setStatus(
+        hardwareConnected && !hardwareCleared
+            ? "Website alert stopped, but ESP32 reset command failed."
+            : "SOS demo alert stopped."
     );
 
+    await publishLocation();
+    await stopSecureSharing(false);
+
+    setText("shareLinkStatus", "SOS reset. Location sharing stopped.");
+
     logActivity(
-        "SOS reset and location sharing stopped."
+        hardwareCleared
+            ? "SOS reset sent to ESP32; location sharing stopped."
+            : "Website SOS reset; location sharing stopped."
     );
 }
 
@@ -1639,6 +1660,28 @@ function setBleMessage(message) {
     setText("bleMessage", message);
 }
 
+async function sendBleCommand(command) {
+    if (
+        !hardwareConnected ||
+        !bleCharacteristic ||
+        !bleServer ||
+        !bleServer.connected
+    ) {
+        return false;
+    }
+
+    const payload = new TextEncoder().encode(command);
+
+    if (typeof bleCharacteristic.writeValueWithResponse === "function") {
+        await bleCharacteristic.writeValueWithResponse(payload);
+    } else {
+        await bleCharacteristic.writeValue(payload);
+    }
+
+    logActivity("Command sent to ESP32: " + command);
+    return true;
+}
+
 function handleBleDisconnect() {
     hardwareConnected = false;
     bleServer = null;
@@ -1672,9 +1715,28 @@ function handleBleData(event) {
             publishLocation();
         }
 
-        if (data.sos === true) {
-            setText("alertState", "ACTIVE");
-            setText("alertStatus", "HARDWARE SOS SIGNAL RECEIVED");
+        if (typeof data.sos === "boolean") {
+            const wasSOSActive = isSOSActive;
+            isSOSActive = data.sos;
+
+            if (data.sos) {
+                isAlarmMuted = false;
+                setText("alertState", "ACTIVE");
+                setText("alertStatus", "HARDWARE SOS SIGNAL RECEIVED");
+                if (!wasSOSActive) {
+                    startAlarm();
+                    logActivity("SOS activated by ESP32 hardware.");
+                }
+            } else {
+                setText("alertState", "INACTIVE");
+                setText("alertStatus", "No active alert");
+                if (wasSOSActive) {
+                    stopAlarmCompletely();
+                    logActivity("SOS cleared by ESP32 hardware.");
+                }
+            }
+
+            publishLocation();
         }
     } catch (error) {
         console.error("Invalid ESP32 BLE data:", error);
@@ -1698,7 +1760,7 @@ async function connectHardware() {
 
     try {
         bleDevice = await navigator.bluetooth.requestDevice({
-            acceptAllDevices: true,
+            filters: [{ services: [BLE_SERVICE_UUID] }],
             optionalServices: [BLE_SERVICE_UUID]
         });
         bleDevice.addEventListener("gattserverdisconnected", handleBleDisconnect);
